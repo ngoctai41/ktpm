@@ -1,64 +1,139 @@
+# Tên của workflow này sẽ hiển thị trên giao diện GitHub Actions
 name: Docker Image CI
 
+# Định nghĩa các sự kiện sẽ kích hoạt workflow này
 on:
   push:
-    branches: [ "main" ]
+    branches:
+      - main # Kích hoạt khi có commit được push lên nhánh 'main'
   pull_request:
-    branches: [ "main" ]
+    # LƯU Ý QUAN TRỌNG: 'branches: [ "" ]' là không hợp lệ.
+    # Nếu bạn muốn kích hoạt trên PR vào 'main', hãy để là ['main'].
+    # Nếu bạn không muốn kích hoạt trên PR, hãy xóa toàn bộ phần 'pull_request'.
+    branches:
+      - main # Đã sửa lại để kích hoạt trên PR vào nhánh 'main'
 
+# Định nghĩa các công việc (jobs) trong workflow
 jobs:
+  # Job 1: Chạy kiểm thử (Tests) cho Frontend
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest # Chạy job này trên một runner Ubuntu phiên bản mới nhất
 
     steps:
-    - uses: actions/checkout@v4
-    - name: Set up Node.js
-      uses: actions/setup-node@v3
-      with:
-        node-version: 'lts/*'
+      - name: Checkout code # Bước để tải mã nguồn từ repository
+        uses: actions/checkout@v4 # ĐỀ XUẤT: Luôn sử dụng phiên bản mới nhất (v4) để có các bản vá lỗi và tính năng mới.
 
-    - name: Install dependencies
-      run: npm install
-      working-directory: ./frontend
+      - name: Set up Node.js # Bước để cài đặt môi trường Node.js
+        uses: actions/setup-node@v4 # ĐỀ XUẤT: Cập nhật lên v4.
+        with:
+          node-version: 'lts/*' # Sử dụng phiên bản Node.js LTS mới nhất
 
-    - name: Run tests
-      run: npm run test
-      working-directory: ./frontend
+      - name: Install frontend dependencies # Cài đặt các gói phụ thuộc cho dự án frontend
+        run: npm install
+        working-directory: ./frontend # Thực hiện lệnh trong thư mục 'frontend'
 
+      - name: Run frontend tests # Chạy các bài kiểm thử cho dự án frontend
+        run: npm run test
+        working-directory: ./frontend # Thực hiện lệnh trong thư mục 'frontend'
+
+  # Job 2: Xây dựng (Build) Docker Image
   build:
-    needs: test  # Chạy job 'test' trước
-    runs-on: ubuntu-latest
+    needs: test # Job này sẽ chỉ chạy khi job 'test' hoàn thành thành công
+    runs-on: ubuntu-latest # Chạy job này trên một runner Ubuntu phiên bản mới nhất
 
     steps:
-    - uses: actions/checkout@v4
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v2
+      - name: Checkout code # Tải mã nguồn
+        uses: actions/checkout@v4 # ĐỀ XUẤT: Luôn sử dụng phiên bản mới nhất (v4).
 
-    - name: Log in to Docker Hub
-      uses: docker/login-action@v2
-      with:
-        username: ${{ secrets.DOCKER_USERNAME }}
-        password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Set up Docker Buildx # Cài đặt Docker Buildx để hỗ trợ xây dựng image hiệu quả
+        uses: docker/setup-buildx-action@v3 # ĐỀ XUẤT: Cập nhật lên v3.
 
-    - name: Build and push Docker image
-      uses: docker/build-push-action@v3
-      with:
-        context: ./backend
-        file: ./backend/Dockerfile
-        push: true
-        tags: taideptraiqua/ngoctai:latest
+      - name: Log in to Docker Hub # Đăng nhập vào Docker Hub để có quyền push image
+        uses: docker/login-action@v3 # ĐỀ XUẤT: Cập nhật lên v3.
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }} # Tên người dùng Docker Hub từ GitHub Secrets
+          password: ${{ secrets.DOCKER_PASSWORD }} # Mật khẩu Docker Hub từ GitHub Secrets
 
+      - name: Build and push Docker image # Xây dựng và đẩy Docker image lên Docker Hub
+        uses: docker/build-push-action@v5 # ĐỀ XUẤT: Cập nhật lên v5.
+        with:
+          context: ./backend # Đường dẫn đến thư mục chứa Dockerfile và mã nguồn backend
+          file: ./backend/Dockerfile # Đường dẫn đến Dockerfile của bạn
+          push: true # Cho phép đẩy image lên registry
+          tags: taideptraiqua/ngoctai:latest # Tag của Docker image (username/repo_name:tag)
+                                            # Đảm bảo "taideptraiqua/ngoctai" khớp với repository của bạn trên Docker Hub
+
+  # Job 3: Mở Pull Request tự động (nếu có thay đổi)
   open-pull-request:
-    runs-on: ubuntu-latest
-    needs: build
+    runs-on: ubuntu-latest # Chạy job này trên một runner Ubuntu
+    needs: build # Job này sẽ chỉ chạy khi job 'build' hoàn thành thành công
+
+    # ĐỀ XUẤT QUAN TRỌNG: Thêm điều kiện 'if' để kiểm soát khi nào job này chạy.
+    # Thường thì bạn chỉ muốn tạo PR tự động khi có push lên nhánh chính,
+    # không phải từ một Pull Request khác.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    # ĐỀ XUẤT QUAN TRỌNG: Định nghĩa quyền hạn cho job này.
+    # Cần quyền ghi để tạo commit và push nhánh, cũng như tạo PR.
+    permissions:
+      contents: write # Cần quyền ghi để tạo commit mới và push nhánh
+      pull-requests: write # Cần quyền tạo và quản lý Pull Request
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v2
+      - name: Checkout code # Tải mã nguồn. Cần token có quyền ghi để push commit mới.
+        uses: actions/checkout@v4 # ĐỀ XUẤT: Cập nhật lên v4.
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }} # GITHUB_TOKEN được GitHub cung cấp tự động
 
-    - name: Create Pull Request
-      uses: peter-evans/create-pull-request@v3
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        branch: feature/main
-        title: main
+      - name: Configure Git # Cấu hình thông tin người dùng Git cho các commit tự động
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      # ĐỀ XUẤT QUAN TRỌNG: Bạn cần một bước để tạo ra thay đổi trong repository
+      # trước khi tạo Pull Request. Nếu không có thay đổi nào, action
+      # 'peter-evans/create-pull-request' sẽ không có gì để làm và có thể gây lỗi.
+      - name: Make and commit changes (REQUIRED for PR creation)
+        id: make_changes # Đặt ID cho bước để có thể tham chiếu output của nó
+        run: |
+          # Ví dụ: cập nhật một file build_status.txt với thông tin run mới
+          # Đảm bảo nội dung file thay đổi mỗi lần chạy để Git phát hiện thay đổi
+          echo "Build completed at $(date) - Workflow run ${{ github.run_id }} - Commit SHA: ${{ github.sha }}" > build_status.txt
+          git add build_status.txt
+
+          # Kiểm tra xem có bất kỳ thay đổi nào để commit không.
+          # Nếu không có thay đổi, git commit sẽ không được thực hiện.
+          if ! git diff --staged --quiet; then
+            git commit -m "CI: Update build status for workflow run ${{ github.run_id }}"
+            echo "::set-output name=committed::true" # Đặt output là 'true' nếu có commit
+          else
+            echo "No new changes detected to commit."
+            echo "::set-output name=committed::false" # Đặt output là 'false' nếu không có commit
+          fi
+        # LƯU Ý: THAY THẾ các lệnh 'echo' và 'git add/commit' này bằng logic
+        # thực tế của bạn để tạo ra thay đổi trong repository (ví dụ: cập nhật
+        # file version, file manifest deployment, v.v.)
+
+      - name: Create Pull Request # Tạo Pull Request nếu có commit mới
+        # ĐỀ XUẤT: Chỉ chạy bước này nếu bước 'Make and commit changes' thực sự tạo ra một commit mới
+        if: steps.make_changes.outputs.committed == 'true'
+        uses: peter-evans/create-pull-request@v6 # ĐỀ XUẤT: Cập nhật lên v6.
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # ĐỀ XUẤT: Sử dụng một nhánh tạm thời được tạo bởi CI để tạo PR.
+          # 'feature/merge-to-master' là một tên nhánh cố định, có thể gây xung đột
+          # nếu nó đã tồn tại và không được quản lý bởi workflow.
+          branch: ci-automated-merge # Nhánh mà PR sẽ được tạo từ
+          base: main # Nhánh đích mà PR sẽ được merge vào
+          title: "CI: Automated merge after Docker image build and status update" # Tiêu đề PR rõ ràng
+          body: | # Nội dung của Pull Request
+            This pull request is automatically generated by the CI/CD pipeline after a successful Docker image build and push.
+
+            - **Docker Image Tag:** `taideptraiqua/ngoctai:latest`
+            - **Workflow Run Link:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            Please review and merge.
+          commit-message: "CI: Automated changes for merge to main" # Tin nhắn commit cho các thay đổi trong PR
+          # Các tùy chọn khác (bỏ comment để sử dụng):
+          # merge-method: squash # Phương thức merge (squash, merge, rebase)
+          # auto-merge: true # Tự động merge PR nếu các điều kiện được đáp ứng (ví dụ: tất cả checks pass)
